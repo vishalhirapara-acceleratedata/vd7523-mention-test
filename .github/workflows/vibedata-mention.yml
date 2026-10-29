@@ -1,0 +1,40 @@
+# A reviewer's `@vibedata <request>` comment on a pull request starts a Vibedata Intent, as
+# that reviewer, which forwards the request to the Intent that owns the pull request's branch.
+# Setup: a repository admin creates the vibedata-mention environment limited to the default
+# branch, and each reviewer adds their Vibedata token as VIBEDATA_PAT_<their GitHub user id>.
+name: vibedata-mention
+
+on:
+  issue_comment:
+    types: [created] # edits and deletions never trigger a mention
+
+jobs:
+  vibedata:
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@vibedata') &&
+      github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    # Releases the reviewers' token secrets only to runs the environment's branch policy allows.
+    environment: vibedata-mention
+    # Worst case is 360 s of Vibedata calls (three 90 s opens, two 5 s pauses, four 20 s calls)
+    # plus checkout and the GitHub calls; a cancelled job would leave no reply or outcome line.
+    timeout-minutes: 8
+    permissions:
+      contents: read # the runner scripts on the default branch
+      pull-requests: write # read the pull request, react to the comment, reply
+      actions: read # read the environment's branch policy
+    steps:
+      # The default branch's scripts only: pull-request code never runs with the token secret.
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Start the mention Intent
+        env:
+          STUDIO: ${{ vars.VD_CI_STUDIO_URL }}
+          DOMAIN_ID: ${{ vars.VD_CI_DOMAIN_ID }}
+          PAT: ${{ secrets[format('VIBEDATA_PAT_{0}', github.event.comment.user.id)] }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONPATH: .github/scripts
+        run: python3 .github/scripts/vibedata_domain_ci/vibedata_mention_runner.py

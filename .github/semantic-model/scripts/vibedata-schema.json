@@ -1,0 +1,560 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vibedata:semantic-model:vibedata-schema",
+  "title": "VIBEDATA extensions for Apache Ossie (frozen key set)",
+  "description": "The closed VIBEDATA payload vocabulary. Each custom_extensions entry with vendor_name VIBEDATA carries a JSON-encoded object of one of these four shapes, chosen by the document component it sits on (model, dataset, relationship, metric). Unknown keys are rejected by ossie.py; new keys arrive by intent with a validator change and tests. Names, handles and references are Ossie SQL identifiers ($defs/identifier); expressions carry x-ossie-expression-kind, an annotation JSON Schema ignores and ossie.py enforces.",
+  "type": "object",
+  "$defs": {
+    "modelPayload": {
+      "type": "object",
+      "properties": {
+        "vibedata_version": {
+          "$ref": "#/$defs/version"
+        },
+        "physical_tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/physicalTable"
+          }
+        },
+        "physical_joins": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/physicalJoin"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "physicalTable": {
+      "type": "object",
+      "required": [
+        "name",
+        "source"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "source": {
+          "$ref": "#/$defs/relation"
+        },
+        "dbt_model": {
+          "$ref": "#/$defs/identifier",
+          "description": "dbt ref() name that builds this table; aliases name their base model"
+        },
+        "table_type": {
+          "enum": [
+            "TABLE",
+            "VIEW",
+            "ALIAS",
+            "OPAQUE_VIEW",
+            "STORED_PROC",
+            "SYNONYM"
+          ]
+        },
+        "alias_of": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "$ref": "#/$defs/text"
+        },
+        "note": {
+          "$ref": "#/$defs/text",
+          "description": "Why-not or partial-mapping rationale, recorded where it cannot drift from the entry"
+        },
+        "partitioned_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Storage partition columns of this physical table, only when it is truly partitioned"
+        }
+      },
+      "additionalProperties": false
+    },
+    "physicalJoin": {
+      "type": "object",
+      "required": [
+        "name",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "from": {
+          "$ref": "#/$defs/identifier"
+        },
+        "to": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "additionalProperties": false
+    },
+    "datasetPayload": {
+      "type": "object",
+      "properties": {
+        "vibedata_version": {
+          "$ref": "#/$defs/version"
+        },
+        "scd": {
+          "$ref": "#/$defs/scd"
+        },
+        "logical_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/logicalSource"
+          }
+        },
+        "hierarchies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hierarchy"
+          }
+        },
+        "levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/level"
+          },
+          "description": "The dimension's levels (OBIEE logical levels), declared once and shared by its hierarchies"
+        },
+        "row_level": {
+          "$ref": "#/$defs/rowLevel"
+        }
+      },
+      "additionalProperties": false
+    },
+    "scd": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            1,
+            2,
+            3
+          ]
+        },
+        "natural_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "valid_from": {
+          "$ref": "#/$defs/identifier"
+        },
+        "valid_to": {
+          "$ref": "#/$defs/identifier"
+        },
+        "is_current": {
+          "$ref": "#/$defs/identifier"
+        },
+        "open_ended_value": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "ISO date (YYYY-MM-DD) that closes a current version"
+        }
+      },
+      "additionalProperties": false
+    },
+    "logicalSource": {
+      "type": "object",
+      "required": [
+        "name",
+        "physical_table"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "physical_table": {
+          "$ref": "#/$defs/identifier"
+        },
+        "priority_group": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_grain": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "note": {
+          "$ref": "#/$defs/text",
+          "description": "Partial-mapping rationale: which columns were refused and why"
+        },
+        "column_map": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/identifier"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Logical field or metric name to the physical column of this source"
+        },
+        "join_cost": {
+          "type": "number",
+          "description": "Relative cost for aggregate ordering, lower wins"
+        },
+        "content_levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/levelRef"
+          },
+          "description": "Per dimension role, the level this source holds; a role not listed is aggregated away"
+        },
+        "content_filter": {
+          "$ref": "#/$defs/predicate",
+          "description": "Row predicate over the dataset's fields that every row of this source satisfies, values written as literals; held by a test named in note"
+        },
+        "navigable": {
+          "type": "boolean",
+          "description": "false: an engine must not choose this source unless asked by name (population the content_filter cannot state)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hierarchy": {
+      "type": "object",
+      "required": [
+        "name",
+        "levels"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "is_time": {
+          "type": "boolean",
+          "description": "Levels order chronologically by their primary keys"
+        },
+        "scd_rollup": {
+          "enum": [
+            "as_of",
+            "current"
+          ],
+          "description": "Type 2 only: a member rolls up as of the fact's date, or as it is now"
+        },
+        "levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "description": "Level names, coarsest first"
+        }
+      },
+      "additionalProperties": false
+    },
+    "relationshipPayload": {
+      "type": "object",
+      "properties": {
+        "vibedata_version": {
+          "$ref": "#/$defs/version"
+        },
+        "physical_join": {
+          "$ref": "#/$defs/identifier"
+        },
+        "cardinality": {
+          "enum": [
+            "many-to-one",
+            "one-to-one",
+            "many-to-many"
+          ]
+        },
+        "join_type": {
+          "enum": [
+            "LEFT OUTER",
+            "INNER",
+            "FULL OUTER",
+            "RIGHT OUTER"
+          ],
+          "description": "SQL join type of the execution join"
+        },
+        "join_cost": {
+          "type": "number"
+        },
+        "join_expression": {
+          "$ref": "#/$defs/predicate",
+          "description": "The join predicate when it is not the core from/to equi-join, in Ossie FieldExpr grammar: every column is <from or to dataset>.<declared field>"
+        },
+        "note": {
+          "$ref": "#/$defs/text",
+          "description": "Why this relationship lacks key-covering to_columns, or why a reachable path has none"
+        },
+        "to_level": {
+          "$ref": "#/$defs/identifier",
+          "description": "Level of the target whose primary key to_columns carry: the join reaches a member of a versioned dimension, not one of its rows"
+        },
+        "weight": {
+          "$ref": "#/$defs/identifier",
+          "description": "Field of the from dataset that allocates a measure entering this relationship from its one side (a weighted bridge); the weights of one member sum to 1"
+        }
+      },
+      "additionalProperties": false
+    },
+    "level": {
+      "type": "object",
+      "required": [
+        "name",
+        "keys"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/levelKey"
+          },
+          "minItems": 1
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Descriptive fields of a member that identify nothing (a name that repeats)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "levelRef": {
+      "type": "object",
+      "properties": {
+        "via": {
+          "$ref": "#/$defs/identifier",
+          "description": "Relationship that reaches the dimension (names the role). Omitted only on a dimension's own coarser source, where the level is one of the dataset's own levels"
+        },
+        "level": {
+          "$ref": "#/$defs/identifier",
+          "description": "A level of the target dataset; omitted, the target's own rows"
+        },
+        "key": {
+          "$ref": "#/$defs/identifier",
+          "description": "Which of the level's keys; default its primary key"
+        },
+        "key_columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Aggregate content only: the source's columns that carry that key, in key-field order"
+        }
+      },
+      "additionalProperties": false
+    },
+    "metricPayload": {
+      "type": "object",
+      "properties": {
+        "vibedata_version": {
+          "$ref": "#/$defs/version"
+        },
+        "aggregation": {
+          "enum": [
+            "SUM",
+            "MIN",
+            "MAX",
+            "NON_ADDITIVE"
+          ],
+          "description": "Rule for rolling a pre-aggregated column up to a coarser grain; NON_ADDITIVE never rolls up"
+        },
+        "derived_expression": {
+          "$ref": "#/$defs/metricFormula",
+          "description": "Post-aggregation formula over other metrics; the metric binds to no column"
+        },
+        "at_levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/levelRef"
+          },
+          "description": "Level-based metric: evaluated at these levels whatever the query groups by"
+        },
+        "time_series": {
+          "$ref": "#/$defs/timeSeries"
+        },
+        "based_on_dimensions": {
+          "$ref": "#/$defs/basedOnDimensions"
+        },
+        "filter": {
+          "$ref": "#/$defs/predicate",
+          "description": "OBIEE FILTER(... USING ...): the rows the metric reads, as a predicate over dataset.field columns the core expression also reads"
+        },
+        "unrelated_dimensions": {
+          "enum": [
+            "error",
+            "total"
+          ],
+          "description": "A query that groups or filters by a dimension the metric cannot reach: error (default) rejects the query; total repeats the metric's value without that dimension"
+        }
+      },
+      "additionalProperties": false
+    },
+    "timeSeries": {
+      "type": "object",
+      "required": [
+        "function",
+        "of",
+        "via",
+        "level"
+      ],
+      "properties": {
+        "function": {
+          "enum": [
+            "AGO",
+            "TODATE",
+            "ROLLING"
+          ]
+        },
+        "of": {
+          "$ref": "#/$defs/identifier",
+          "description": "Metric whose value is shifted or accumulated"
+        },
+        "via": {
+          "$ref": "#/$defs/identifier"
+        },
+        "level": {
+          "$ref": "#/$defs/identifier"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "AGO only: periods back"
+        },
+        "periods": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "ROLLING only: the current member and periods - 1 before it, in the time dimension's chronological order"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rowLevel": {
+      "type": "object",
+      "required": [
+        "level",
+        "versioned"
+      ],
+      "description": "The level one row of the dataset is. versioned: rows are versions of that level's members (Type 2)",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/identifier"
+        },
+        "versioned": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "levelKey": {
+      "type": "object",
+      "required": [
+        "name",
+        "fields"
+      ],
+      "description": "Fields that identify one member of the level. Every key is unique at its level by declaration",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1
+        },
+        "primary": {
+          "type": "boolean",
+          "description": "Exactly one per level: what joins, aggregate navigation and blending use"
+        },
+        "display": {
+          "type": "boolean",
+          "description": "At most one per level: the key shown for a member; default the primary"
+        }
+      },
+      "additionalProperties": false
+    },
+    "basedOnDimensions": {
+      "type": "object",
+      "required": [
+        "of",
+        "across",
+        "rule"
+      ],
+      "description": "OBIEE dimension-based aggregation rule: evaluate `of` at the query's grain refined by `across`, then apply `rule` across those members",
+      "properties": {
+        "of": {
+          "$ref": "#/$defs/identifier"
+        },
+        "across": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/levelRef"
+          },
+          "minItems": 1
+        },
+        "rule": {
+          "enum": [
+            "AVG",
+            "SUM",
+            "MIN",
+            "MAX",
+            "MEDIAN",
+            "FIRST",
+            "LAST"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "identifier": {
+      "description": "An Ossie SQL identifier (core-spec/expression_language.md, Namespacing and Identifier Resolution): a regular identifier of at most 128 characters, matched case-insensitively, or an ANSI double-quoted identifier (a doubled quote escapes one) for a physical name that needs quoting. Regular identifiers are the portable choice.",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 128
+        },
+        {
+          "pattern": "^\"([^\"]|\"\")+\"$",
+          "maxLength": 130
+        }
+      ]
+    },
+    "relation": {
+      "description": "A physical relation, schema.table or catalog.schema.table, each part an identifier",
+      "type": "string",
+      "pattern": "^([A-Za-z_][A-Za-z0-9_]*|\"([^\"]|\"\")+\")(\\.([A-Za-z_][A-Za-z0-9_]*|\"([^\"]|\"\")+\")){1,2}$"
+    },
+    "version": {
+      "description": "The payload generation: every payload carries the current key-set version",
+      "const": "1.5"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expression": {
+      "description": "An Ossie expression (OSSIE_SQL_2026), checked by Ossie's validate_sql_expression and parsed by ossie_sql.py",
+      "type": "string",
+      "minLength": 1
+    },
+    "predicate": {
+      "$ref": "#/$defs/expression",
+      "x-ossie-expression-kind": "predicate",
+      "description": "Boolean at its root (comparison, AND/OR/NOT, IS [NOT] NULL, IN with a value list, BETWEEN, LIKE/ILIKE, a boolean function or column); no aggregate, window or subquery"
+    },
+    "metricFormula": {
+      "$ref": "#/$defs/expression",
+      "x-ossie-expression-kind": "metric-formula",
+      "description": "Arithmetic over metric names and scalar functions (NULLIF, COALESCE, CASE, CAST); not a predicate; no aggregate, window or subquery"
+    }
+  }
+}
