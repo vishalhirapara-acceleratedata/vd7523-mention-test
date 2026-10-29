@@ -11,3 +11,7 @@ models:
         description: Hardcoded placeholder order identifier.
       - name: status
         description: Hardcoded placeholder order status.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed']
