@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: orders
+    description: >
+      Minimal placeholder orders model with one hardcoded row, used to
+      validate the dbt project scaffold. Not sourced from any upstream
+      relation.
+    columns:
+      - name: order_id
+        description: Hardcoded placeholder order identifier.
+      - name: status
+        description: Hardcoded placeholder order status.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed']
