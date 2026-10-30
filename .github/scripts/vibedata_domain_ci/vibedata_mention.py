@@ -1,11 +1,13 @@
-"""Core of the @vibedata mention runner.
+"""Core of the Vibedata mention runner.
 
-A reviewer's `@vibedata <request>` comment on a pull request starts a short "mention"
-Intent in Vibedata, as that reviewer, and hands it the handling-pr-mention skill prompt.
+A reviewer's `@vibedata-app <request>` comment on a pull request starts a short "mention"
+Intent in Vibedata with the repository's one Vibedata token (`VIBEDATA_GHA_TOKEN`), and
+hands it the handling-pr-mention skill prompt.
 The skill does the real work; this module only decides whether to start it and makes
 the calls that do.
 
 Public surface:
+    mentions_trigger(comment) -> bool whether a comment addresses Vibedata
     build_skill_prompt(...) -> str   the prompt sent to the mention Intent
     run_mention(event, ...) -> int   the whole run; returns the process exit code
 
@@ -15,6 +17,7 @@ runner shell implements; every decision lives here.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -26,6 +29,11 @@ RETRYABLE_OPEN_CODES: frozenset[str] = frozenset({"intent_open_coordination_busy
 # so an old comment re-run would create a second Intent for the same request.
 MAX_COMMENT_AGE: timedelta = timedelta(hours=1)
 
+# The plain `@vibedata` belongs to an unrelated GitHub user, so it is never the trigger.
+TRIGGER = "@vibedata-app"
+# GitHub's `contains()` in the job `if` is a case-insensitive substring test, so it also
+# fires for `@vibedata-apps` or `x@vibedata-app.io`; only a standalone handle counts.
+_TRIGGER_RE = re.compile(r"(?<![\w@.-])" + re.escape(TRIGGER) + r"(?![\w-])", re.IGNORECASE)
 ENVIRONMENT = "vibedata-mention"
 PROMPT_FIRST_LINE = "Use the handling-pr-mention skill with this input:"
 CALL_TIMEOUT = 20.0
@@ -36,21 +44,21 @@ OPEN_RETRY_PAUSE = 5
 
 REPLIES: dict[str, str] = {
     "unrestricted_environment": (
-        "The vibedata-mention environment must be limited to the default branch before @vibedata can run. "
+        "The vibedata-mention environment must be limited to the default branch before Vibedata mentions can run. "
         "A repository admin sets this in Settings → Environments → vibedata-mention → Deployment branches "
         "and tags: choose Selected branches and tags, with one rule for the default branch only."
     ),
     "missing_pat": (
-        "Add your Vibedata personal access token as the secret VIBEDATA_PAT_{user_id} in this repository's "
-        "vibedata-mention environment. A repository admin creates that environment once; see "
-        '"Use your key for @vibedata mentions in GitHub" in the Vibedata user guide.'
+        "A repository admin adds a Vibedata personal access token as the secret VIBEDATA_GHA_TOKEN in this "
+        'repository\'s vibedata-mention environment; see "Use your key for Vibedata mentions in GitHub" in the '
+        "Vibedata user guide."
     ),
     "pr_unreadable": "Vibedata could not read this pull request. Comment again to retry.",
     "unauthorized": (
-        "Your Vibedata personal access token is invalid or expired. Create a new one in Vibedata "
-        "and update your VIBEDATA_PAT_{user_id} secret."
+        "The VIBEDATA_GHA_TOKEN secret is invalid or expired. A repository admin creates a new Vibedata "
+        "personal access token and updates the secret."
     ),
-    "forbidden": "You cannot create Intents in this Vibedata Domain.",
+    "forbidden": "The Vibedata user behind VIBEDATA_GHA_TOKEN cannot create Intents in this Vibedata Domain.",
     "could_not_start": "Vibedata could not start the request. Comment again to retry.",
 }
 
@@ -63,7 +71,6 @@ class MentionEvent:
     comment_body: str
     comment_created_at: datetime  # timezone-aware UTC
     commenter_login: str
-    commenter_id: int
     default_branch: str
 
 
@@ -110,6 +117,10 @@ class GitHubPort(Protocol):
     def react_eyes(self, repository: str, comment_id: int) -> None: ...
 
 
+def mentions_trigger(comment: str) -> bool:
+    return _TRIGGER_RE.search(comment) is not None
+
+
 def build_skill_prompt(
     *, repository: str, pull_request: int, head_branch: str, comment: str, studio_url: str, domain_id: str
 ) -> str:
@@ -126,10 +137,10 @@ def build_skill_prompt(
     return PROMPT_FIRST_LINE + "\n" + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
 
-def _studio_failure(error: StudioError, user_id: int) -> tuple[str, str]:
+def _studio_failure(error: StudioError) -> tuple[str, str]:
     """(outcome, reply) for a Studio call that failed."""
     if error.status == 401:
-        return "unauthorized", REPLIES["unauthorized"].format(user_id=user_id)
+        return "unauthorized", REPLIES["unauthorized"]
     if error.status == 403:
         return "forbidden", REPLIES["forbidden"]
     reply = REPLIES["could_not_start"]
@@ -163,7 +174,7 @@ def _start_intent(
         "/api/v1/intents",
         body={
             "domainId": domain_id,
-            "title": f"PR #{event.pull_request} @vibedata mention",
+            "title": f"PR #{event.pull_request} mention",
             "agent": "build",
             "requiresIntentResources": False,
             "creationSource": "gha",
@@ -218,6 +229,8 @@ def run_mention(
         log(f"::notice::vibedata-mention outcome={outcome} intent={intent[0] if intent else 'none'}")
         return code
 
+    if not mentions_trigger(event.comment_body):
+        return finish("no_mention", 0)
     # When GitHub cannot answer, the commenter's access and the environment's branch
     # rule are unknown, so nothing is sent and no reply is attempted through the same API.
     try:
@@ -229,7 +242,7 @@ def run_mention(
     if now() - event.comment_created_at > MAX_COMMENT_AGE:
         return finish("stale_comment", 0)
     # GitHub creates a referenced environment that does not exist with no protection rules,
-    # so the first mention could otherwise release PAT secrets to any branch's workflow.
+    # so the first mention could otherwise release the token secret to any branch's workflow.
     # Only a single rule naming the default branch keeps them there: "protected branches",
     # a wildcard, a second branch or a tag rule each lets a writer's push reach them.
     try:
@@ -239,7 +252,7 @@ def run_mention(
     if rules != [("branch", event.default_branch)]:
         return finish("unrestricted_environment", 1, REPLIES["unrestricted_environment"])
     if not pat:
-        return finish("missing_pat", 1, REPLIES["missing_pat"].format(user_id=event.commenter_id))
+        return finish("missing_pat", 1, REPLIES["missing_pat"])
     try:
         head_branch = github.head_ref(event.repository, event.pull_request)
     except Exception:
@@ -258,7 +271,7 @@ def run_mention(
             event, prompt, pat=pat, domain_id=domain_id, studio=studio, sleep=sleep, on_created=intent.append
         )
     except StudioError as error:
-        outcome, reply = _studio_failure(error, event.commenter_id)
+        outcome, reply = _studio_failure(error)
         return finish(outcome, 1, reply)
 
     try:
