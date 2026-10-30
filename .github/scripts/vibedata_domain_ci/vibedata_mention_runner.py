@@ -1,7 +1,7 @@
-"""Thin shell for the @vibedata mention workflow.
+"""Thin shell for the Vibedata mention workflow.
 
 gather → call → dispatch:
-  1. Mask the commenter's Vibedata PAT before any other output.
+  1. Mask the repository's Vibedata token before any other output.
   2. Read the issue_comment event from GITHUB_EVENT_PATH; the comment body is read here,
      never interpolated into a shell command.
   3. Call vibedata_mention.run_mention with a urllib Studio client and a `gh` GitHub client.
@@ -17,7 +17,7 @@ Environment:
     GITHUB_TOKEN       the job token, used by `gh`
     STUDIO             the Vibedata URL
     DOMAIN_ID          the Vibedata Domain id
-    PAT                the commenter's Vibedata personal access token (empty when not set up)
+    PAT                the VIBEDATA_GHA_TOKEN secret, a Vibedata personal access token (empty when not set up)
 """
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ def event_from_payload(payload: dict) -> MentionEvent:
         comment_body=comment["body"],
         comment_created_at=created_at,
         commenter_login=comment["user"]["login"],
-        commenter_id=int(comment["user"]["id"]),
         default_branch=payload["repository"]["default_branch"],
     )
 
